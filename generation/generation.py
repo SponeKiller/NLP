@@ -16,8 +16,8 @@ from fairscale.nn.model_parallel.initialize import (
     model_parallel_is_initialized,
 )
 
-from llama.model import ModelArgs, Transformer
-from llama.tokenizer import Tokenizer
+from model.model import ModelArgs, Transformer
+from tokenizer.tokenizer import Tokenizer
 
 Role = Literal["system", "user", "assistant"]
 
