@@ -1,14 +1,8 @@
 import os
 import sys
 import time
-import json
 from pathlib import Path
 from typing import Tuple
-
-from model.model import Transformer
-from model.model_config import ModelArgs
-from tokenizer.tokenizer import Tokenizer
-from model.inicialize_config import InicializeArgs
 
 import torch
 from fairscale.nn.model_parallel.initialize import (
@@ -16,6 +10,12 @@ from fairscale.nn.model_parallel.initialize import (
     initialize_model_parallel,
     model_parallel_is_initialized,
 )
+
+from model.model import Transformer
+from model.model_config import ModelArgs
+from tokenizer.tokenizer import Tokenizer
+from model.inicialize_config import InicializeArgs
+
 
 class Llama:
     def __init__(
