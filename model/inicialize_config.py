@@ -11,7 +11,7 @@ class InicializeArgs:
         ckpt_dir (str): Path to the directory containing checkpoint files.
         tokenizer_path (str): Path to the tokenizer file.
         model_parallel_size (Optional[int], optional): Number of model parallel processes (default is 1)
-        seed (int): Set seed for torch.seed (default is 1 )
+        seed (int): Set seed for torch.seed
     Returns:
         [int], [str] : model config parameters
 

@@ -3,6 +3,12 @@ import sys
 import time
 import json
 import csv
+
+from typing import List, Literal, Optional, Tuple, TypedDict
+import warnings
+from tqdm import tqdm
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -12,14 +18,11 @@ from fairscale.nn.model_parallel.initialize import (
     initialize_model_parallel,
     model_parallel_is_initialized,
 )
-from llama.model import ModelArgs, Transformer
-from llama.tokenizer import Tokenizer
+from model.inicialize import Llama
 from dataset import BilingualDataset
-from typing import List, Literal, Optional, Tuple, TypedDict
-import warnings
-from tqdm import tqdm
-from pathlib import Path
-import train_config as config
+from train_config import TrainArgs
+
+
 
 
 
@@ -141,80 +144,16 @@ def get_or_build_tokenizer(config, ds, lang):
 
 
 
+class Train():
 
-class Llama:
-    @staticmethod   
-    def build_model(
-        ckpt_dir: str,
-        tokenizer_path: str,
-        config: List[int]
-        ) -> "Llama":
-        """
-        Build a Llama instance by initializing and loading a model.
+    def __init__(self, model:Llama, config:TrainArgs  ):
+        self.model, self.tokenizer = model
+        self.config = config
+        self._get_ds()
 
-        Args:
-            ckpt_dir (str): Path to the directory containing checkpoint files.
-            tokenizer_path (str): Path to the tokenizer file.
-            config (List[int]): Configuration parameters for model
 
-        Returns:
-            Llama: An instance of the Llama class with the loaded model and tokenizer.
 
-        Raises:
-            AssertionError: If there are no checkpoint files in the specified directory,
-                or if the model parallel size does not match the number of checkpoint files.
-
-        Note:
-            This method initializes the distributed process group, sets the device to CUDA,
-            and loads the pre-trained model and tokenizer.
-
-        """
-        if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group("nccl")
-        if not model_parallel_is_initialized():
-            if config["model_parallel_size"] is None:
-                config["model_parallel_size"] = int(os.environ.get("WORLD_SIZE", 1))
-            initialize_model_parallel(config["model_parallel_size"])
-
-        local_rank = int(os.environ.get("LOCAL_RANK", 0))
-        torch.cuda.set_device(local_rank)
-
-        # seed must be the same in all processes
-        torch.manual_seed(config["seed"])
-
-        if local_rank > 0:
-            sys.stdout = open(os.devnull, "w")
-
-        start_time = time.time()
-        checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
-        assert len(checkpoints) > 0, f"no checkpoint files found in {ckpt_dir}"
-        assert config["model_parallel_size"] == len(
-            checkpoints
-        ), f"Loading a checkpoint for MP={len(checkpoints)} but world size is {config["model_parallel_size"]}"
-        ckpt_path = checkpoints[get_model_parallel_rank()]
-        checkpoint = torch.load(ckpt_path, map_location="cpu")
-        with open(Path(ckpt_dir) / "params.json", "r") as f:
-            params = json.loads(f.read())
-
-        model_args: ModelArgs = ModelArgs(
-            max_seq_len=config["max_seq_len"],
-            max_batch_size=config["max_batch_size"],
-            **params,
-        )
-        tokenizer = Tokenizer(model_path=tokenizer_path)
-        model_args.vocab_size = tokenizer.n_words
-        torch.set_default_tensor_type(torch.cuda.HalfTensor)
-        model = Transformer(model_args)
-        model.load_state_dict(checkpoint, strict=False)
-        print(f"Loaded in {time.time() - start_time:.2f} seconds")
-
-        return Llama(model, tokenizer)
-
-    def __init__(self, model: Transformer, tokenizer: Tokenizer):
-        self.model = model
-        self.tokenizer = tokenizer
-
-    def train_model(self, config):
+    def train_model(self):
     
         train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt = get_ds(config)
 
@@ -281,78 +220,12 @@ class Llama:
                 'optimizer_state_dict': optimizer.state_dict(),
                 'global_step': global_step
             }, model_filename)
-    def _get_ds(self, config):
-        #loading data
-        ds_raw = self._load_dataset(config["train_data"])
 
-
-        # Keep 90% for training, 10% for validation
-        train_ds_size = int(0.9 * len(ds_raw))
-        val_ds_size = len(ds_raw) - train_ds_size
-        train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
-        train_ds = BilingualDataset(train_ds_raw, self.tokenizer, config["seq_len"])
-        val_ds = BilingualDataset(val_ds_raw, self.tokenizer, config["seq_len"])
-
-        # Find the maximum length in provided dataset
-        max_len_train_ds = max(len(t) for t in train_ds["decoder_input"].tolist())
-        max_len_val_ds = max(len(t) for t in val_ds["decoder_input"].tolist())
-
-        assert (max_len_train_ds or max_len_val_ds) <= self.model.params.max_seq_len, f"Max seq_len can be of {self.model.params.max_seq_len} tokens"
-
-
-        for item in ds_raw:
-            src_ids = tokenizer_src.encode(item['translation'][config['lang_src']]).ids
-            tgt_ids = tokenizer_tgt.encode(item['translation'][config['lang_tgt']]).ids
-            max_len_src = max(max_len_src, len(src_ids))
-            max_len_tgt = max(max_len_tgt, len(tgt_ids))
-
-        
-
-        train_dataloader = DataLoader(train_ds, batch_size=config['batch_size'], shuffle=True)
-        val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
-
-        return train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt
-    def _load_dataset(self, path) -> List[str]:
-
-        """
-        Load dataset from csv file
-
-        Args:
-            path (str): Path to the directory containing csv files.
-            
-        Returns:
-            List[str] - data from csv file.
-
-        Raises:
-            AssertionError: if in provided path wont find any csv files.
-        
-        Note:
-            Only first (in asc sorting) csv file from provided path will be loaded 
-
-        """
-        
-        files = sorted(Path(path).glob("*.csv"))
-
-        assert len(files) > 0, f"No csv files found in directory {path}"
-
-        csv_data = []
- 
-        with open(files[0], "r", newline="") as csvfile:
-            csv_row = csv.reader(csvfile,delimiter="", quotechar="|")
-            csv_data.append(csv_row)
-              
-        return csv_data
-
-
-
-
-
-
-    def finetune_model(config):
+    def finetune_model(self, config):
     
-        train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt = get_ds(config)
+        train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt = self._get_ds(self.config.train_data)
 
-        optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'], eps=1e-9)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr, eps=1e-9)
 
         # If the user specified a model to preload before training, load it
         initial_epoch = 0
@@ -417,7 +290,66 @@ class Llama:
             }, model_filename)
 
 
-if __name__ == '__main__':
-    warnings.filterwarnings("ignore")
-    config = get_config()
-    train_model(config)
+    def _get_ds(self):
+        
+        #loading data
+        ds_raw = self._load_dataset(self.config.train_data)
+
+        # Keep 90% for training, 10% for validation
+        train_ds_size = int(0.9 * len(ds_raw))
+        val_ds_size = len(ds_raw) - train_ds_size
+        train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
+        train_ds = BilingualDataset(train_ds_raw, self.tokenizer, config["seq_len"])
+        val_ds = BilingualDataset(val_ds_raw, self.tokenizer, config["seq_len"])
+
+        # Find the maximum length in provided dataset
+        max_len_train_ds = max(len(t) for t in train_ds["decoder_input"].tolist())
+        max_len_val_ds = max(len(t) for t in val_ds["decoder_input"].tolist())
+
+        assert (max_len_train_ds or max_len_val_ds) <= self.model.params.max_seq_len, f"Max seq_len can be of {self.model.params.max_seq_len} tokens"
+
+
+        for item in ds_raw:
+            src_ids = tokenizer_src.encode(item['translation'][config['lang_src']]).ids
+            tgt_ids = tokenizer_tgt.encode(item['translation'][config['lang_tgt']]).ids
+            max_len_src = max(max_len_src, len(src_ids))
+            max_len_tgt = max(max_len_tgt, len(tgt_ids))
+
+        
+
+        train_dataloader = DataLoader(train_ds, batch_size=config['batch_size'], shuffle=True)
+        val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
+
+        return train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt
+    
+
+    def _load_dataset(self, path) -> List[str]:
+
+        """
+        Load dataset from csv file
+
+        Args:
+            path (str): Path to the directory containing csv files.
+            
+        Returns:
+            List[str] - data from csv file.
+
+        Raises:
+            AssertionError: if in provided path wont find any csv files.
+        
+        Note:
+            Only first (in asc sorting) csv file from provided path will be loaded 
+
+        """
+        
+        files = sorted(Path(path).glob("*.csv"))
+
+        assert len(files) > 0, f"No csv files found in directory {path}"
+
+        csv_data = []
+ 
+        with open(files[0], "r", newline="") as csvfile:
+            csv_row = csv.reader(csvfile,delimiter="", quotechar="|")
+            csv_data.append(csv_row)
+              
+        return csv_data

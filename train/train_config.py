@@ -1,17 +1,25 @@
-{
-    "ckpt_dir": "/weights",
-    "tokenizer_file": "tokenizer_{0}.json",
-    "config":{
-                "batch_size": 8,
-                "num_epochs": 20,
-                "lr": 10**-4,
-                "seq_len": 350,
-                "d_model": 512,
-                "max_batch_size": 32,
-                "model_parallel_size": None,
-                "train_data": "in CSV file"
+from dataclasses import dataclass
+from typing import Optional
 
-            }
-}
+
+@dataclass
+class TrainArgs:
+    """
+    Train model configurations parameters 
+
+    Args:
+        batch_size (int): Amount of sequences put to one traing cycle
+        num_epochs (int): Number of training cycle
+        lr (int): Learning rate of model
+        train_dta (str): path to training data
+    Returns:
+        [int], [str] : model config parameters
+
+    """
+    batch_size: int = 8
+    num_epochs: int = 20
+    lr: int = 10**-4
+    train_data: str = "/train/train_data/"
+
 
 
