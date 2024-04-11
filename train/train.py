@@ -1,13 +1,9 @@
 import os
-import sys
-import time
 import json
-import csv
-
 from typing import List, Literal, Optional, Tuple, TypedDict
-import warnings
 from tqdm import tqdm
 from pathlib import Path
+from blessed import Terminal
 
 import torch
 import torch.nn as nn
@@ -19,138 +15,19 @@ from fairscale.nn.model_parallel.initialize import (
     model_parallel_is_initialized,
 )
 from model.inicialize import Llama
-from dataset import BilingualDataset
 from train_config import TrainArgs
+from train.datasets import Train_Dataset, Finetune_Dataset, Reinforce_Dataset
 
-
-
-
-
-
-def greedy_decode(model, source, source_mask, tokenizer_src, tokenizer_tgt, max_len, device):
-    sos_idx = tokenizer_tgt.token_to_id('[SOS]')
-    eos_idx = tokenizer_tgt.token_to_id('[EOS]')
-
-    # Precompute the encoder output and reuse it for every step
-    encoder_output = model.encode(source, source_mask)
-    # Initialize the decoder input with the sos token
-    decoder_input = torch.empty(1, 1).fill_(sos_idx).type_as(source).to(device)
-    while True:
-        if decoder_input.size(1) == max_len:
-            break
-
-        # build mask for target
-        decoder_mask = causal_mask(decoder_input.size(1)).type_as(source_mask).to(device)
-
-        # calculate output
-        out = model.decode(encoder_output, source_mask, decoder_input, decoder_mask)
-
-        # get next token
-        prob = model.project(out[:, -1])
-        _, next_word = torch.max(prob, dim=1)
-        decoder_input = torch.cat(
-            [decoder_input, torch.empty(1, 1).type_as(source).fill_(next_word.item()).to(device)], dim=1
-        )
-
-        if next_word == eos_idx:
-            break
-
-    return decoder_input.squeeze(0)
-
-
-def run_validation(model, validation_ds, tokenizer_src, tokenizer_tgt, max_len, device, print_msg, global_step, writer, num_examples=2):
-    model.eval()
-    count = 0
-
-    source_texts = []
-    expected = []
-    predicted = []
-
-    try:
-        # get the console window width
-        with os.popen('stty size', 'r') as console:
-            _, console_width = console.read().split()
-            console_width = int(console_width)
-    except:
-        # If we can't get the console width, use 80 as default
-        console_width = 80
-
-    with torch.no_grad():
-        for batch in validation_ds:
-            count += 1
-            encoder_input = batch["encoder_input"].to(device) # (b, seq_len)
-            encoder_mask = batch["encoder_mask"].to(device) # (b, 1, 1, seq_len)
-
-            # check that the batch size is 1
-            assert encoder_input.size(
-                0) == 1, "Batch size must be 1 for validation"
-
-            model_out = greedy_decode(model, encoder_input, encoder_mask, tokenizer_src, tokenizer_tgt, max_len, device)
-
-            source_text = batch["src_text"][0]
-            target_text = batch["tgt_text"][0]
-            model_out_text = tokenizer_tgt.decode(model_out.detach().cpu().numpy())
-
-            source_texts.append(source_text)
-            expected.append(target_text)
-            predicted.append(model_out_text)
-            
-            # Print the source, target and model output
-            print_msg('-'*console_width)
-            print_msg(f"{f'SOURCE: ':>12}{source_text}")
-            print_msg(f"{f'TARGET: ':>12}{target_text}")
-            print_msg(f"{f'PREDICTED: ':>12}{model_out_text}")
-
-            if count == num_examples:
-                print_msg('-'*console_width)
-                break
-    
-    if writer:
-        # Evaluate the character error rate
-        # Compute the char error rate 
-        metric = torchmetrics.CharErrorRate()
-        cer = metric(predicted, expected)
-        writer.add_scalar('validation cer', cer, global_step)
-        writer.flush()
-
-        # Compute the word error rate
-        metric = torchmetrics.WordErrorRate()
-        wer = metric(predicted, expected)
-        writer.add_scalar('validation wer', wer, global_step)
-        writer.flush()
-
-        # Compute the BLEU metric
-        metric = torchmetrics.BLEUScore()
-        bleu = metric(predicted, expected)
-        writer.add_scalar('validation BLEU', bleu, global_step)
-        writer.flush()
-
-def get_all_sentences(ds, lang):
-    for item in ds:
-        yield item['translation'][lang]
-
-def get_or_build_tokenizer(config, ds, lang):
-    tokenizer_path = Path(config['tokenizer_file'].format(lang))
-    if not Path.exists(tokenizer_path):
-        # Most code taken from: https://huggingface.co/docs/tokenizers/quicktour
-        tokenizer = Tokenizer(WordLevel(unk_token="[UNK]"))
-        tokenizer.pre_tokenizer = Whitespace()
-        trainer = WordLevelTrainer(special_tokens=["[UNK]", "[PAD]", "[SOS]", "[EOS]"], min_frequency=2)
-        tokenizer.train_from_iterator(get_all_sentences(ds, lang), trainer=trainer)
-        tokenizer.save(str(tokenizer_path))
-    else:
-        tokenizer = Tokenizer.from_file(str(tokenizer_path))
-    return tokenizer
 
 
 
 class Train():
 
-    def __init__(self, model:Llama, config:TrainArgs  ):
+    def __init__(self, model:Llama, config:TrainArgs):
         self.model, self.tokenizer = model
         self.config = config
-        self._get_ds()
-
+        self._run_training()
+        
 
 
     def train_model(self):
@@ -288,42 +165,112 @@ class Train():
                 'optimizer_state_dict': optimizer.state_dict(),
                 'global_step': global_step
             }, model_filename)
+    
+    def train_model(self):
+    
+        train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt = get_ds(config)
+
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=config['lr'], eps=1e-9)
+
+        # If the user specified a model to preload before training, load it
+        initial_epoch = 0
+        global_step = 0
+        if config['preload']:
+            model_filename = get_weights_file_path(config, config['preload'])
+            print(f'Preloading model {model_filename}')
+            state = torch.load(model_filename)
+            model.load_state_dict(state['model_state_dict'])
+            initial_epoch = state['epoch'] + 1
+            optimizer.load_state_dict(state['optimizer_state_dict'])
+            global_step = state['global_step']
+
+        loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
+
+        for epoch in range(initial_epoch, config['num_epochs']):
+            torch.cuda.empty_cache()
+            model.train()
+            batch_iterator = tqdm(train_dataloader, desc=f"Processing Epoch {epoch:02d}")
+            for batch in batch_iterator:
+
+                encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
+                decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
+                encoder_mask = batch['encoder_mask'].to(device) # (B, 1, 1, seq_len)
+                decoder_mask = batch['decoder_mask'].to(device) # (B, 1, seq_len, seq_len)
+
+                # Run the tensors through the encoder, decoder and the projection layer
+                encoder_output = model.encode(encoder_input, encoder_mask) # (B, seq_len, d_model)
+                decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask) # (B, seq_len, d_model)
+                proj_output = model.project(decoder_output) # (B, seq_len, vocab_size)
+
+                # Compare the output with the label
+                label = batch['label'].to(device) # (B, seq_len)
+
+                # Compute the loss using a simple cross entropy
+                loss = loss_fn(proj_output.view(-1, tokenizer_tgt.get_vocab_size()), label.view(-1))
+                batch_iterator.set_postfix({"loss": f"{loss.item():6.3f}"})
+
+                # Log the loss
+                writer.add_scalar('train loss', loss.item(), global_step)
+                writer.flush()
+
+                # Backpropagate the loss
+                loss.backward()
+
+                # Update the weights
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+
+                global_step += 1
+
+            # Run validation at the end of every epoch
+            run_validation(model, val_dataloader, tokenizer_src, tokenizer_tgt, config['seq_len'], device, lambda msg: batch_iterator.write(msg), global_step, writer)
+
+            # Save the model at the end of every epoch
+            model_filename = get_weights_file_path(config, f"{epoch:02d}")
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'global_step': global_step
+            }, model_filename)
 
 
-    def _get_ds(self):
-        
+
+    def _set_dataset(self):
+
         #loading data
         ds_raw = self._load_dataset(self.config.train_data)
 
-        # Keep 90% for training, 10% for validation
-        train_ds_size = int(0.9 * len(ds_raw))
-        val_ds_size = len(ds_raw) - train_ds_size
-        train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
-        train_ds = BilingualDataset(train_ds_raw, self.tokenizer, config["seq_len"])
-        val_ds = BilingualDataset(val_ds_raw, self.tokenizer, config["seq_len"])
-
-        # Find the maximum length in provided dataset
-        max_len_train_ds = max(len(t) for t in train_ds["decoder_input"].tolist())
-        max_len_val_ds = max(len(t) for t in val_ds["decoder_input"].tolist())
-
-        assert (max_len_train_ds or max_len_val_ds) <= self.model.params.max_seq_len, f"Max seq_len can be of {self.model.params.max_seq_len} tokens"
-
-
-        for item in ds_raw:
-            src_ids = tokenizer_src.encode(item['translation'][config['lang_src']]).ids
-            tgt_ids = tokenizer_tgt.encode(item['translation'][config['lang_tgt']]).ids
-            max_len_src = max(max_len_src, len(src_ids))
-            max_len_tgt = max(max_len_tgt, len(tgt_ids))
-
+        # Splitting Val and train ds
+        assert self.config.train_ds_size > 1, "Train_ds_size must be less or equal 1"
         
+        train_ds_size = int(self.config.train_ds_size * len(ds_raw))
+        val_ds_size = len(ds_raw) - train_ds_size
 
-        train_dataloader = DataLoader(train_ds, batch_size=config['batch_size'], shuffle=True)
-        val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
-
-        return train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt
+        train_ds_raw = ds_raw
+        
+        #Split ds only if we want something use for validation 
+        if val_ds_size > 0:
+            train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
     
+    
+        train_ds = self.options[self.selected_training[1]](train_ds_raw, self.tokenizer, self.model.params.max_seq_len)
+        
+        if val_ds_size > 0:
+            val_ds = self.options[self.selected_training[1]](val_ds_raw, self.tokenizer, self.model.params.max_seq_len)
 
-    def _load_dataset(self, path) -> List[str]:
+        train_dataloader = DataLoader(train_ds, batch_size=self.config.batch_size, shuffle=True)
+        
+        
+        if val_ds_size > 0:
+            val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
+            
+        
+        print("Dataset has been successfully loaded")
+
+        return train_dataloader, val_dataloader
+
+    def _load_dataset(self):
 
         """
         Load dataset from csv file
@@ -336,20 +283,127 @@ class Train():
 
         Raises:
             AssertionError: if in provided path wont find any csv files.
-        
-        Note:
-            Only first (in asc sorting) csv file from provided path will be loaded 
-
+            AssertionError: if columns wont be in correct order
+            AssertionError: if columns is more than should be provided 
         """
         
-        files = sorted(Path(path).glob("*.csv"))
+        files = sorted(Path(self.config.train_data).glob("*.jsonl"))
 
-        assert len(files) > 0, f"No csv files found in directory {path}"
+        assert len(files) > 0, f"No jsonl files found in directory {self.config.train_data}"
 
-        csv_data = []
- 
-        with open(files[0], "r", newline="") as csvfile:
-            csv_row = csv.reader(csvfile,delimiter="", quotechar="|")
-            csv_data.append(csv_row)
-              
-        return csv_data
+        
+        if (len(files) > 1):
+            
+            term = Terminal()
+            
+            with term.cbreak():
+                # Starting index
+                selected = 0
+
+                print("Please select file for training model")
+                
+                # Event loop
+                while True:
+                    print(term.move_yx(0, 0) + term.clear)
+                    
+                    for index, option in enumerate(files):
+                        if index == selected:
+                            print(term.underline + option + term.no_underline)
+                        else:
+                            print(option)
+
+                    inp = term.inkey()
+                    
+                    if inp.is_sequence:
+                        if inp.name == "KEY_UP":
+                            selected -= 1
+                        elif inp.name == "KEY_DOWN":
+                            selected += 1
+                        elif inp.name == "KEY_ENTER":
+                            break
+
+
+                    # Stay within the options list
+                    selected %= len(files)
+
+            selected_file = files[selected]
+            
+        else:
+            selected_file = files[0]
+        
+        data = []
+        
+        with open(selected_file, "r") as file:
+            for line in file:
+                #Checking if input data for fine tuning are in correct shape
+                if(self.selected_training == "Pretraing"):
+                    assert len(line) == 1, (f"Pretraing data should have only 1 column, but provided {len(line)}")
+                    
+                if(self.selected_training == "Finetuning"):    
+                    assert line["messages"][0]["role"] == "system" and line["messages"][1]["role"] == "user" and line["messages"][2]["role"] == "assistant", ("model only supports 'system', 'user' and 'assistant' roles,starting with 'system', then 'user' and alternating (u/a/u/a/u...)")
+                    
+                if(self.selected_training == "Reinforce_learning"):    
+                    assert len(line) == 1, (f"Reinforce_learning data should have only 1 column, but provided {len(line)}")
+                
+                data.append(json.loads(line))
+        
+        
+        
+        print(f"Selected file: {selected_file} is loading.") 
+             
+        return data
+    
+    def _run_training(self):
+        
+        """
+        Run selected training 
+
+        Call:
+            Selected[function] - Base on selected function call specified traing.
+        
+        """
+       
+            
+        term = Terminal()
+        
+        with term.cbreak():
+            # Starting index
+            selected = 0
+
+        
+            
+            self.options = {"Pretraing": {self.train_model, Train_Dataset}, 
+                        "Finetuning": {self.finetune_model, Finetune_Dataset}, 
+                        "Reinforce_learning": {self.reinforce_model, Reinforce_Dataset}}
+                
+            
+            # Event loop
+            while True:
+                print(term.move_yx(0, 0) + term.clear)
+                print("Please select type of training\n")
+                for index, option in enumerate(self.options):
+                    if index == selected:
+                        self.selected_training = option
+                        print(term.underline + option + term.no_underline)
+                    else:
+                        print(option)
+
+                inp = term.inkey()
+                
+                if inp.is_sequence:
+                    if inp.name == "KEY_UP":
+                        selected -= 1
+                    elif inp.name == "KEY_DOWN":
+                        selected += 1
+                    elif inp.name == "KEY_ENTER":
+                        break
+
+
+                # Stay within the options list
+                selected %= len(self.options)
+                
+        print("\n")
+        print(f"{self.selected_training} module is loading, please wait.")
+
+        self.options[self.selected_training[0]]()
+

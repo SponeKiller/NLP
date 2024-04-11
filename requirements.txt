@@ -1,0 +1,7 @@
+# All libraries need for running this model 
+
+blessed
+torch
+fairscale
+sentencepiece
+fire

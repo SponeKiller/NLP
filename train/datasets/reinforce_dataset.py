@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data import Dataset
 
-class BilingualDataset(Dataset):
+class Reinforce_Dataset(Dataset):
 
     def __init__(self, ds, tokenizer, seq_len):
         super().__init__()

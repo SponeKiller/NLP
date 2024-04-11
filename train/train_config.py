@@ -19,7 +19,18 @@ class TrainArgs:
     batch_size: int = 8
     num_epochs: int = 20
     lr: int = 10**-4
+    train_steps: int = 1
+    eval_steps: int = 10
     train_data: str = "/train/train_data/"
+    lambda_1: int = 0.01
+    lambda_2: int = 0.01
+    beta1 = 0
+    beta2 = 0
+    epsilon = 1**-9
+    weight_decay = 0
+    amsgrad = False
+    train_ds_size = 0.9
+    
 
 
 
