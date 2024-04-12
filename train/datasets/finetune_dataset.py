@@ -13,10 +13,10 @@ class Finetune_Dataset(Dataset):
         return len(self.ds)
 
     def __getitem__(self, idx):
+        
         src_text= self.ds[idx]
-        system_text = src_text["system"]
-        question_text = src_text["question"]
-        answer_text = src_text["answer"]
+        dialog_text = src_text["messages"][0]["content"]+()
+ 
 
         # Transform the text into tokens
         system_tokens = self.tokenizer.encode(system_text).ids

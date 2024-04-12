@@ -56,10 +56,7 @@ class Train():
             batch_iterator = tqdm(train_dataloader, desc=f"Processing Epoch {epoch:02d}")
             for batch in batch_iterator:
 
-                encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
-                decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
-                encoder_mask = batch['encoder_mask'].to(device) # (B, 1, 1, seq_len)
-                decoder_mask = batch['decoder_mask'].to(device) # (B, 1, seq_len, seq_len)
+             
 
                 # Run the tensors through the encoder, decoder and the projection layer
                 encoder_output = model.encode(encoder_input, encoder_mask) # (B, seq_len, d_model)
@@ -338,9 +335,9 @@ class Train():
                 #Checking if input data for fine tuning are in correct shape
                 if(self.selected_training == "Pretraing"):
                     assert len(line) == 1, (f"Pretraing data should have only 1 column, but provided {len(line)}")
-                    
+                ## Tady jeste orpavit
                 if(self.selected_training == "Finetuning"):    
-                    assert line["messages"][0]["role"] == "system" and line["messages"][1]["role"] == "user" and line["messages"][2]["role"] == "assistant", ("model only supports 'system', 'user' and 'assistant' roles,starting with 'system', then 'user' and alternating (u/a/u/a/u...)")
+                    assert line["messages"][0]["role"] == "system" and line["messages"][1::2]["role"] == "user" and line["messages"][2::2]["role"] == "assistant", ("model only supports 'system', 'user' and 'assistant' roles,starting with 'system', then 'user' and alternating (u/a/u/a/u...)")
                     
                 if(self.selected_training == "Reinforce_learning"):    
                     assert len(line) == 1, (f"Reinforce_learning data should have only 1 column, but provided {len(line)}")
