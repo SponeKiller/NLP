@@ -15,45 +15,44 @@ class Finetune_Dataset(Dataset):
     def __getitem__(self, idx):
         
         src_text= self.ds[idx]
-        dialog_text = src_text["messages"][0]["content"]+()
- 
-
-        # Transform the text into tokens
-        system_tokens = self.tokenizer.encode(system_text).ids
-        question_tokens = self.tokenizer.encode(question_text).ids
-        answer_tokens = self.tokenizer.encode(answer_text).ids
         
-        #creating a mask on answer tokens which model will try to predict
-        decoder_mask = torch.zeros(len(answer_tokens), dtype=torch.long)
+        dialog_tokens = []
+        decoder_mask = []
+        #Creating from input sentence and decoder mask 
+        
+        for message in src_text["messages"]:
+            dialog_tokens.extend(self.tokenizer.encode(message["content"], bos=False, eos = False))
+            if(message["role"] == "user"):
+                decoder_mask.extend([0] * len(self.tokenizer.encode(message["content"], bos=True, eos = False)))
+            else:
+                decoder_mask.extend([1] * len(self.tokenizer.encode(message["content"], bos=True, eos = False)))
 
-        #Counting num of PAD token - EOS, BOS, system, question and answer tokens
-        num_padding_tokens = self.seq_len - len(system_tokens) - len(question_tokens) - len(answer_tokens) - 2  
+    
+        
+        # Number of pad tokens needed to put to the end of sentence
+        num_padding_tokens = self.seq_len - len(dialog_tokens) 
 
-        # Sentences cannot be longer than seq_len, so we have to raise an Error
+        # Sentence cannot be longer than seq_len, so we have to raise an Error
         if num_padding_tokens < 0 :
             raise ValueError(f"Sentence is too long, max sequence lengt is {self.seq_len} tokens")
 
         # input to model
         decoder_input = torch.cat(
-            [
-                self.tokenizer.bos_id,
-                torch.tensor(question_tokens, dtype=torch.long),
-                torch.tensor(decoder_mask, dtype=torch.long),
-                self.tokenizer.eos_id,
+            [   torch.tensor(self.tokenizer.bos_id),
+                torch.tensor(dialog_tokens, dtype=torch.long),
+                torch.tensor(self.tokenizer.eos_id),
                 torch.tensor([self.tokenizer.pad_id] * num_padding_tokens, dtype=torch.long),
             ],
             dim=0,
         )
 
-        # label for calculating cross entrophy loss
-        label = torch.tensor(answer_tokens, dtype=torch.long),
+        
+
                
 
 
         return {
             
             "decoder_input": decoder_input,  # (seq_len)
-            "decoder_mask": decoder_mask, # len(answer_tokens)
-            "label": label,  # (seq_len)
-            "src_text": src_text,
+            "decoder_mask": decoder_mask, # decoder mask
         }
