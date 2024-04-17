@@ -1,9 +1,25 @@
 import torch
 from torch.utils.data import Dataset
+from typing import Tuple
 
 class Finetune_Dataset(Dataset):
+    def __init__(self, ds, tokenizer, seq_len) -> Tuple[torch.tensor]:
+        
+        """
+        Build a dataset for Finetuning model
 
-    def __init__(self, ds, tokenizer, seq_len):
+        Args:
+            ds (list) : Dataset from training model
+            tokenizer (class) : an instance of model tokenizer
+            seq_len (int) : model max sequence length
+
+        Returns:
+            Tuple[decoder_input, decoder_mask] : decoder_input is a tokenized conversation  and decoder_mask reflects decoder_input in 1 (system, user) and 0 (assistant)
+
+        Raises:
+            ValueError: If sequence for traing is longer than max seq_len of model
+
+        """
         super().__init__()
         self.seq_len = seq_len
         self.ds = ds
@@ -38,9 +54,9 @@ class Finetune_Dataset(Dataset):
 
         # input to model
         decoder_input = torch.cat(
-            [   torch.tensor(self.tokenizer.bos_id),
+            [   torch.tensor(self.tokenizer.bos_id,dtype=torch.long),
                 torch.tensor(dialog_tokens, dtype=torch.long),
-                torch.tensor(self.tokenizer.eos_id),
+                torch.tensor(self.tokenizer.eos_id,dtype=torch.long),
                 torch.tensor([self.tokenizer.pad_id] * num_padding_tokens, dtype=torch.long),
             ],
             dim=0,
@@ -54,5 +70,5 @@ class Finetune_Dataset(Dataset):
         return {
             
             "decoder_input": decoder_input,  # (seq_len)
-            "decoder_mask": decoder_mask, # decoder mask
+            "decoder_mask": decoder_mask, # (seq_len)
         }
