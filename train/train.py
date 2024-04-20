@@ -16,6 +16,7 @@ from fairscale.nn.model_parallel.initialize import (
 )
 from model.inicialize import Llama
 from train_config import TrainArgs
+from train.augmentation import Augmentation
 from train.datasets import Train_Dataset, Finetune_Dataset, Reinforce_Dataset
 
 
@@ -241,6 +242,8 @@ class Train():
         # Splitting Val and train ds
         assert self.config.train_ds_size > 1, "Train_ds_size must be less or equal 1"
         
+        self.augment_dataset()
+        
         train_ds_size = int(self.config.train_ds_size * len(ds_raw))
         val_ds_size = len(ds_raw) - train_ds_size
 
@@ -374,7 +377,7 @@ class Train():
                         "Reinforce_learning": {self.reinforce_model, Reinforce_Dataset}}
                 
             
-            # Event loop
+            
             while True:
                 print(term.move_yx(0, 0) + term.clear)
                 print("Please select type of training\n")
@@ -403,4 +406,53 @@ class Train():
         print(f"{self.selected_training} module is loading, please wait.")
 
         self.options[self.selected_training[0]]()
+        
+        
+    def augment_dataset(self):
+        
+        """
+        Augment dataset
+        
+        Note:
+        User can choose to augment dataset or not   
+        
+        """
+       
+        term = Terminal()
+        
+        with term.cbreak():
+            # Starting index
+            selected = 0
+
+            self.options = {"YES", "NO"}
+                
+            while True:
+                    print(term.move_yx(0, 0) + term.clear)
+                    print("Would you like to augment dataset?\n")
+                    for index, option in enumerate(self.options):
+                        if index == selected:
+                            self.selected_option = option
+                            print(term.underline + option + term.no_underline)
+                        else:
+                            print(option)
+
+                    inp = term.inkey()
+                    
+                    if inp.is_sequence:
+                        if inp.name == "KEY_UP":
+                            selected -= 1
+                        elif inp.name == "KEY_DOWN":
+                            selected += 1
+                        elif inp.name == "KEY_ENTER":
+                            break
+
+
+                    # Stay within the options list
+                    selected %= len(self.options)
+            
+            
+            #If user choose to augment dataset
+                        
+            if self.selected_option == "YES":
+                Augmentation()      
 

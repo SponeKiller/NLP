@@ -5,10 +5,13 @@ class Augmentation:
     """
     
     
-    def __init__(self):
+    def __init__(self, ds, training, ):
         """
         in all funkction is better to use a model which specialize for this, or we can lose a meaning of sentence
         """
+        self.ds = ds
+        self.training = training
+        
         
     
     def synonymous_rep(self):

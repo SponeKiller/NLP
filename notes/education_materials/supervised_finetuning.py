@@ -167,7 +167,7 @@ def run_training(args, train_data, val_data):
         report_to="wandb",
         ddp_find_unused_parameters=False,
     )
-
+    
     model = AutoModelForCausalLM.from_pretrained(
         args.model_path, load_in_8bit=True, device_map={"": Accelerator().process_index}
     )
