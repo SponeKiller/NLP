@@ -242,10 +242,11 @@ class Train():
         # Splitting Val and train ds
         assert self.config.train_ds_size > 1, "Train_ds_size must be less or equal 1"
         
+        #Checking if user wants to augment dataset
         self.augment_dataset()
         
-        train_ds_size = int(self.config.train_ds_size * len(ds_raw))
-        val_ds_size = len(ds_raw) - train_ds_size
+        train_ds_size: int = self.config.train_ds_size * len(ds_raw)
+        val_ds_size: int = len(ds_raw) - train_ds_size
 
         train_ds_raw = ds_raw
         
@@ -414,7 +415,9 @@ class Train():
         Augment dataset
         
         Note:
+        
         User can choose to augment dataset or not   
+        If user choose to augment dataset, Augmentation class will be called
         
         """
        
