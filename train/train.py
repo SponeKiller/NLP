@@ -237,7 +237,7 @@ class Train():
     def _set_dataset(self):
 
         #loading data
-        ds_raw = self._load_dataset(self.config.train_data)
+        self.ds_raw = self._load_dataset(self.config.train_data)
 
         # Splitting Val and train ds
         assert self.config.train_ds_size > 1, "Train_ds_size must be less or equal 1"
@@ -245,14 +245,14 @@ class Train():
         #Checking if user wants to augment dataset
         self.augment_dataset()
         
-        train_ds_size: int = self.config.train_ds_size * len(ds_raw)
-        val_ds_size: int = len(ds_raw) - train_ds_size
+        train_ds_size: int = self.config.train_ds_size * len(self.ds_raw)
+        val_ds_size: int = len(self.ds_raw) - train_ds_size
 
-        train_ds_raw = ds_raw
+        train_ds_raw = self.ds_raw
         
         #Split ds only if we want something use for validation 
         if val_ds_size > 0:
-            train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
+            train_ds_raw, val_ds_raw = random_split(self.ds_raw, [train_ds_size, val_ds_size])
     
     
         train_ds = self.options[self.selected_training[1]](train_ds_raw, self.tokenizer, self.model.params.max_seq_len)
@@ -457,5 +457,6 @@ class Train():
             #If user choose to augment dataset
                         
             if self.selected_option == "YES":
-                Augmentation()      
+                augment = Augmentation(self.ds_raw)
+                self.ds_raw = augment.augment_ds      
 

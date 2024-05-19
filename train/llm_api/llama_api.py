@@ -15,8 +15,7 @@ class llama_api:
         
     def _api_setting(self):
             
-        if(self.is_valid == False):
-            return
+
         
         api_key = ""
         
@@ -93,7 +92,7 @@ class llama_api:
         if(self.augmentation == False):
             self._terminal_UI()
         
-    def query(self, query: str ):
+    def query(self, query: str, system_message: str = "You are a helpful assistant.") -> str:
         
         if(self.is_valid == False):
             return print("Instance is no longer valid. Please create a new instance.")
@@ -101,7 +100,7 @@ class llama_api:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": system_message},
                 {"role": "user", "content": query},
             ]
         )

@@ -15,8 +15,6 @@ class gpt_api:
         
     def _api_setting(self):
             
-        if(self.is_valid == False):
-            return
         
         api_key = ""
         
@@ -58,7 +56,7 @@ class gpt_api:
                     
                 while True:
                         print(term.move_yx(0, 0) + term.clear)
-                        print("Welcome to Llama API")
+                        print("Welcome to GPT API")
                         print("Please select a model to use:\n")
                         for index, option in enumerate(self.options):
                             if index == selected:
