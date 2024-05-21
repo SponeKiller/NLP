@@ -38,7 +38,6 @@ class Augmentation:
             
             To access augmented dataset, use the augmented_ds attribute
         """
-        self.ds = ds
         self.augmented_ds = ds
         self._valid = True # Check if the instance is valid
         self._api_setting()
@@ -58,7 +57,14 @@ class Augmentation:
             return
         
         
-        instruction = "You will take the sentence and remove words without loosing the meaning. Write only output sentence."
+        instruction = "You will take the sentence and replace some words with its synonymous without loosing the meaning. Write only output sentence!"
+        
+        for i in range(len(self.augmented_ds)):
+            
+            # Augment only user messages
+            if(self.augmented_ds[i]["role"] == "user"):
+                
+                self.augmented_ds[i]["content"] = self.api.query(self.augmented_ds[i]["content"], instruction)
 
         
         
@@ -71,7 +77,15 @@ class Augmentation:
             print("Instance is no longer valid. Please create a new instance.")
             time.sleep(1)
             return
+
+        instruction = "You will take the sentence and insert some words without loosing the meaning. Write only output sentence!"
         
+        for i in range(len(self.augmented_ds)):
+            
+            # Augment only user messages
+            if(self.augmented_ds[i]["role"] == "user"):
+                
+                self.augmented_ds[i]["content"] = self.api.query(self.augmented_ds[i]["content"], instruction)
         
     def random_swap(self):
         """
@@ -82,6 +96,15 @@ class Augmentation:
             print("Instance is no longer valid. Please create a new instance.")
             time.sleep(1)
             return
+        
+        instruction = "You will take the sentence and swap some words without loosing the meaning. Write only output sentence!"
+        
+        for i in range(len(self.augmented_ds)):
+            
+            # Augment only user messages
+            if(self.augmented_ds[i]["role"] == "user"):
+                
+                self.augmented_ds[i]["content"] = self.api.query(self.augmented_ds[i]["content"], instruction)
             
     def random_deletion(self):
         
@@ -94,15 +117,44 @@ class Augmentation:
             print("Instance is no longer valid. Please create a new instance.")
             time.sleep(1)
             return
+        
+        instruction = "You will take the sentence and remove some words without loosing the meaning. Write only output sentence!"
+        
+        for i in range(len(self.augmented_ds)):
+            
+            # Augment only user messages
+            if(self.augmented_ds[i]["role"] == "user"):
+                
+                self.augmented_ds[i]["content"] = self.api.query(self.augmented_ds[i]["content"], instruction)
+                
+        
     def back_translation(self):
         """
         Back_translation - translation to different language and back
         """
+        
         if(self.is_valid == False):
             os.system('cls')
             print("Instance is no longer valid. Please create a new instance.")
             time.sleep(1)
             return
+        
+        instruction_1 = "Translate sentence to German. Write only output sentence!"
+        
+        instruction_2 = "Translate sentence to English. Write only output sentence!"
+        
+        for i in range(len(self.augmented_ds)):
+            
+            # Augment only user messages
+            if(self.augmented_ds[i]["role"] == "user"):
+                
+                # Translate to German
+                self.augmented_ds[i]["content"] = self.api.query(self.augmented_ds[i]["content"], instruction_1)
+                
+                # Translate back to English
+                self.augmented_ds[i]["content"] = self.api.query(self.augmented_ds[i]["content"], instruction_2)
+    
+    
     
     def _api_setting(self):
         """
