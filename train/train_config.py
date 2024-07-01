@@ -8,6 +8,7 @@ class TrainArgs:
     Train model configurations parameters 
 
     Args:
+        run_parallel (str): Run parallel training option (FSDP, DDP, PP (Pipeline paralelism))
         batch_size (int): Amount of sequences put to one traing cycle
         num_epochs (int): Number of training cycle
         lr (int): Learning rate of model
@@ -16,6 +17,7 @@ class TrainArgs:
         [int], [str] : model config parameters
 
     """
+    run_parallel: str = None
     batch_size: int = 8
     num_epochs: int = 20
     lr: int = 10**-4

@@ -54,13 +54,13 @@ class Llama:
                 config.model_parallel_size = 1
             initialize_model_parallel(config.model_parallel_size)
 
-        local_rank = int(os.environ.get("LOCAL_RANK", 0))
-        torch.cuda.set_device(local_rank)
+        self.local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        torch.cuda.set_device(self.local_rank)
 
         # seed must be the same in all processes
         torch.manual_seed(config.seed)
 
-        if local_rank > 0:
+        if self.local_rank > 0:
             sys.stdout = open(os.devnull, "w")
 
         start_time = time.time()
